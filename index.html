@@ -1,1 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ngetich | News Microblog</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --bg: #0f172a; --card: #1e293b; --accent: #10b981;
+            --text: #f8fafc; --text-muted: #94a3b8; --border: #334155;
+        }
+        body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; }
+        .container { max-width: 650px; margin: 0 auto; padding: 20px; }
+        
+        /* Brand */
+        header { text-align: center; padding: 40px 0; border-bottom: 1px solid var(--border); }
+        header h1 { color: var(--accent); font-size: 3rem; margin: 0; letter-spacing: -2px; }
+
+        /* UI Elements */
+        .search-bar { width: 100%; padding: 15px; border-radius: 30px; border: 1px solid var(--border); background: var(--card); color: white; margin: 20px 0; outline: none; }
+        nav { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 15px; scrollbar-width: none; }
+        nav button { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 8px 18px; border-radius: 20px; cursor: pointer; white-space: nowrap; transition: 0.2s; }
+        nav button.active { background: var(--accent); border-color: var(--accent); color: white; }
+
+        /* Admin/Post Box */
+        #publisher { background: var(--card); padding: 20px; border-radius: 15px; margin-bottom: 30px; border: 1px solid var(--accent); }
+        textarea { width: 100%; height: 80px; background: transparent; border: none; color: white; font-size: 1.1rem; resize: none; outline: none; }
+        .controls { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+
+        /* Feed */
+        .post { background: var(--card); border-radius: 15px; padding: 20px; margin-bottom: 20px; border: 1px solid var(--border); }
+        .post img, .post video { width: 100%; border-radius: 10px; margin-top: 15px; }
+        .tag { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--accent); }
+        
+        /* Comments */
+        .comment-section { margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border); }
+        .comment { font-size: 0.9rem; margin-bottom: 8px; color: var(--text-muted); }
+        .comment-input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: white; padding: 8px; border-radius: 5px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Ngetich</h1>
+    <p style="color: var(--text-muted)">Politics • Science • Sports • News</p>
+</header>
+
+<div class="container">
+    <input type="text" class="search-bar" id="search" placeholder="Search news and insights..." onkeyup="handleSearch()">
+
+    <nav id="filters">
+        <button class="active" onclick="filter('all', this)">All Feed</button>
+        <button onclick="filter('politics', this)">Politics</button>
+        <button onclick="filter('science', this)">Science</button>
+        <button onclick="filter('sports', this)">Sports</button>
+        <button onclick="filter('local', this)">Local</button>
+        <button onclick="filter('international', this)">International</button>
+    </nav>
+
+    <!-- Post Creator (Owner Only) -->
+    <div id="publisher">
+        <textarea id="postContent" placeholder="Write an update for Ngetich..."></textarea>
+        <div class="controls">
+            <select id="postCat" style="background:var(--bg); color:white; border:none; padding:5px; border-radius:5px;">
+                <option value="politics">Politics</option>
+                <option value="science">Science</option>
+                <option value="sports">Sports</option>
+                <option value="local">Local</option>
+                <option value="international">International</option>
+            </select>
+            <input type="file" id="media" style="display:none" onchange="document.getElementById('fileLabel').innerText = 'File Attached'">
+            <label id="fileLabel" for="media" style="cursor:pointer; color:var(--accent); font-size:0.9rem;">📎 Add Media</label>
+            <button onclick="uploadPost()" id="pubBtn" style="background:var(--accent); color:white; border:none; padding:8px 20px; border-radius:20px; font-weight:bold; cursor:pointer;">Post</button>
+        </div>
+    </div>
+
+    <div id="feed"></div>
+</div>
+
+<script>
+    const supabaseUrl = 'https://ynmonwtachqplzhhmjcd.supabase.co'; // Updated project ref
+    const supabaseKey = 'YOUR_ANON_KEY'; 
+    const _supabase = supabase.createClient(supabaseUrl, supabaseKey);
+
+    // FETCH DATA
+    async function loadFeed() {
+        const { data: posts, error } = await _supabase.from('posts').select('*, comments(*)').order('created_at', { ascending: false });
+        if (error) return console.error(error);
+
+        const feedEl = document.getElementById('feed');
+        feedEl.innerHTML = '';
+
+        posts.forEach(post => {
+            const media = post.media_url ? (post.media_type === 'video' ? `<video src="${post.media_url}" controls></video>` : `<img src="${post.media_url}">`) : '';
+            
+            const postHtml = `
+                <div class="post ${post.category}">
+                    <span class="tag">${post.category}</span>
+                    <p style="font-size:1.1rem; margin: 10px 0;">${post.content}</p>
+                    ${media}
+                    <div class="comment-section">
+                        <div id="comments-${post.id}">
+                            ${post.comments ? post.comments.map(c => `<div class="comment"><b>Reader:</b> ${c.content}</div>`).join('') : ''}
+                        </div>
+                        <input type="text" class="comment-input" placeholder="Write a comment..." onkeypress="addComment(event, '${post.id}')">
+                    </div>
+                </div>`;
+            feedEl.insertAdjacentHTML('beforeend', postHtml);
+        });
+    }
+
+    // UPLOAD POST
+    async function uploadPost() {
+        const btn = document.getElementById('pubBtn');
+        const content = document.getElementById('postContent').value;
+        const category = document.getElementById('postCat').value;
+        const file = document.getElementById('media').files[0];
+
+        btn.innerText = "Processing...";
+        let url = null, type = null;
+
+        if (file) {
+            const path = `uploads/${Date.now()}_${file.name}`;
+            const { data } = await _supabase.storage.from('ngetich-media').upload(path, file);
+            if (data) {
+                const { data: pUrl } = _supabase.storage.from('ngetich-media').getPublicUrl(path);
+                url = pUrl.publicUrl;
+                type = file.type.startsWith('video') ? 'video' : 'image';
+            }
+        }
+
+        await _supabase.from('posts').insert([{ content, category, media_url: url, media_type: type }]);
+        location.reload();
+    }
+
+    // ADD COMMENT
+    async function addComment(e, postId) {
+        if (e.key === 'Enter' && e.target.value) {
+            await _supabase.from('comments').insert([{ post_id: postId, content: e.target.value }]);
+            location.reload();
+        }
+    }
+
+    // FILTER & SEARCH
+    function filter(cat, btn) {
+        document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.post').forEach(p => p.style.display = (cat === 'all' || p.classList.contains(cat)) ? 'block' : 'none');
+    }
+
+    function handleSearch() {
+        const q = document.getElementById('search').value.toLowerCase();
+        document.querySelectorAll('.post').forEach(p => p.style.display = p.innerText.toLowerCase().includes(q) ? 'block' : 'none');
+    }
+
+    loadFeed();
+</script>
+</body>
+  </html>
 
